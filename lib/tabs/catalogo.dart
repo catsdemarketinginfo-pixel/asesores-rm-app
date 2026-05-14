@@ -29,7 +29,7 @@ class _CatalogoTabState extends State<CatalogoTab> {
   List<dynamic> _states = [];
   List<dynamic> _municipalities = [];
   List<dynamic> _cities = [];
-  List<dynamic> _agents = []; 
+  List<dynamic> _agents = []; // <-- Lista de asesores
 
   // Variables Filtro
   String _selectedBusinessModel = ''; 
@@ -37,7 +37,7 @@ class _CatalogoTabState extends State<CatalogoTab> {
   String? _selectedState;
   String? _selectedMunicipality;
   String? _selectedCity;
-  String? _selectedAgent;
+  String? _selectedAgent; // <-- Filtro por asesor
 
   // Controladores
   final TextEditingController _codeCtrl = TextEditingController();
@@ -54,6 +54,7 @@ class _CatalogoTabState extends State<CatalogoTab> {
 
   Future<void> _loadInitialData() async {
     await _fetchCatalogs();
+    await _fetchAgents(); // <-- Cargar agentes
     await _fetchProperties();
   }
 
@@ -78,6 +79,29 @@ class _CatalogoTabState extends State<CatalogoTab> {
     }
   }
 
+  // =========================================================================
+  // NUEVO: Cargar lista de agentes/asesores
+  // =========================================================================
+  Future<void> _fetchAgents() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/api/v1/mobile/agents'),
+        headers: {'Authorization': 'Bearer ${prefs.getString('jwt_token') ?? ''}'},
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['status'] == 'success') {
+          setState(() {
+            _agents = body['data'] ?? [];
+          });
+        }
+      }
+    } catch (e) {
+      print("Error cargando agentes: $e");
+    }
+  }
+
   Future<void> _fetchProperties({int page = 1}) async {
     setState(() { _isLoading = true; _currentPage = page; });
     try {
@@ -89,6 +113,7 @@ class _CatalogoTabState extends State<CatalogoTab> {
       if (_selectedState != null) baseUrl += '&state=$_selectedState';
       if (_selectedMunicipality != null) baseUrl += '&municipality=$_selectedMunicipality';
       if (_selectedCity != null) baseUrl += '&city=$_selectedCity';
+      if (_selectedAgent != null) baseUrl += '&agent=$_selectedAgent'; // <-- Filtro por asesor
       if (_priceMinCtrl.text.isNotEmpty) baseUrl += '&min_price=${_priceMinCtrl.text.trim()}';
       if (_priceMaxCtrl.text.isNotEmpty) baseUrl += '&max_price=${_priceMaxCtrl.text.trim()}';
       if (_metersMinCtrl.text.isNotEmpty) baseUrl += '&min_meters=${_metersMinCtrl.text.trim()}';
@@ -114,8 +139,19 @@ class _CatalogoTabState extends State<CatalogoTab> {
   }
 
   void _limpiarFiltros() {
-    _codeCtrl.clear(); _priceMinCtrl.clear(); _priceMaxCtrl.clear(); _metersMinCtrl.clear(); _metersMaxCtrl.clear();
-    setState(() { _selectedBusinessModel = ''; _selectedHousingType = null; _selectedState = null; _selectedMunicipality = null; _selectedCity = null; _selectedAgent = null; });
+    _codeCtrl.clear(); 
+    _priceMinCtrl.clear(); 
+    _priceMaxCtrl.clear(); 
+    _metersMinCtrl.clear(); 
+    _metersMaxCtrl.clear();
+    setState(() { 
+      _selectedBusinessModel = ''; 
+      _selectedHousingType = null; 
+      _selectedState = null; 
+      _selectedMunicipality = null; 
+      _selectedCity = null; 
+      _selectedAgent = null; // <-- Limpiar asesor
+    });
     _fetchProperties(page: 1);
   }
 
@@ -179,13 +215,13 @@ class _CatalogoTabState extends State<CatalogoTab> {
         Expanded(
           child: Column(
             children: [
-              // PANEL DE FILTROS SUPER PRO (Con scroll interno anti-overflow)
+              // PANEL DE FILTROS
               AnimatedSize(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 child: _showFiltersPanel 
                   ? ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.55),
+                      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.60),
                       child: SingleChildScrollView(child: _buildSuperFilterPanel()),
                     ) 
                   : const SizedBox.shrink(),
@@ -246,7 +282,7 @@ class _CatalogoTabState extends State<CatalogoTab> {
   }
 
   // ============================================================================
-  // PANEL DE FILTROS WEB REORGANIZADO (EN FILAS)
+  // PANEL DE FILTROS (CON ASESOR EN AVANZADOS)
   // ============================================================================
   Widget _buildSuperFilterPanel() {
     return Container(
@@ -264,13 +300,17 @@ class _CatalogoTabState extends State<CatalogoTab> {
           const Row(children: [Icon(Icons.filter_alt_outlined, size: 20), SizedBox(width: 8), Text('FILTROS DE BÚSQUEDA', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 0.5))]),
           const SizedBox(height: 16),
           
+          // Tipo de negocio (Venta/Alquiler)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
                 const Text('¿QUÉ BUSCAS?', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
                 const SizedBox(width: 8),
-                _buildChip('TODO', ''), _buildChip('VENTA', '1'), _buildChip('ALQUILER', '2'), _buildChip('FINANCIADO', '4'),
+                _buildChip('TODO', ''), 
+                _buildChip('VENTA', '1'), 
+                _buildChip('ALQUILER', '2'), 
+                _buildChip('FINANCIADO', '4'),
               ],
             ),
           ),
@@ -314,13 +354,14 @@ class _CatalogoTabState extends State<CatalogoTab> {
             ),
           ),
 
-          // --- FILTROS AVANZADOS ---
+          // --- FILTROS AVANZADOS (Ahora incluye ASESOR) ---
           AnimatedSize(
             duration: const Duration(milliseconds: 300),
             child: _showAdvancedSection ? Padding(
               padding: const EdgeInsets.only(top: 16.0),
               child: Column(
                 children: [
+                  // FILA DE METRAJE Y CÓDIGO
                   Row(
                     children: [
                       Expanded(child: _buildRangeWrapper('METRAJE CONST. (M²)', _metersMinCtrl, _metersMaxCtrl)),
@@ -333,6 +374,23 @@ class _CatalogoTabState extends State<CatalogoTab> {
                             const SizedBox(height: 6),
                             SizedBox(height: 40, child: TextField(controller: _codeCtrl, decoration: InputDecoration(hintText: 'Ej. RM00123', hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400), contentPadding: const EdgeInsets.symmetric(horizontal: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Colors.grey.shade300)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Colors.black))))),
                           ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // =========================================================================
+                  // NUEVO: FILA DEL ASESOR INMOBILIARIO
+                  // =========================================================================
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDropdownWrapper(
+                          'ASESOR INMOBILIARIO', 
+                          _agents, 
+                          _selectedAgent, 
+                          (v) => setState(() => _selectedAgent = v)
                         ),
                       ),
                     ],
@@ -391,7 +449,14 @@ class _CatalogoTabState extends State<CatalogoTab> {
             icon: const Icon(Icons.keyboard_arrow_down, size: 16),
             decoration: InputDecoration(contentPadding: const EdgeInsets.symmetric(horizontal: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Colors.grey.shade300)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Colors.black))),
             hint: Text('Todos', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            items: items.map((item) => DropdownMenuItem(value: (item['id'] ?? item['id_state'] ?? '').toString(), child: Text(item['name'] ?? '', style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis))).toList(),
+            items: items.map((item) => DropdownMenuItem(
+              value: (item['id'] ?? item['id_state'] ?? '').toString(), 
+              child: Text(
+                item['full_name'] ?? item['name'] ?? '', // <-- Ahora soporta 'full_name' (agentes) y 'name' (catálogos)
+                style: const TextStyle(fontSize: 12), 
+                overflow: TextOverflow.ellipsis
+              )
+            )).toList(),
             onChanged: onChanged,
           ),
         ),
@@ -417,14 +482,14 @@ class _CatalogoTabState extends State<CatalogoTab> {
   }
 
   // ============================================================================
-  // TARJETA DE PROPIEDAD (REPARADA ANTI-OVERFLOW)
+  // TARJETA DE PROPIEDAD
   // ============================================================================
   Widget _buildPropertyCardHorizontal(Map<String, dynamic> prop, bool isMobile) {
     return GestureDetector(
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PropertyDetailScreen(property: prop))),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
-        height: isMobile ? 220 : 220, // Aumenté un poco la altura base para que respire
+        height: isMobile ? 220 : 220,
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5, offset: const Offset(0, 2))]),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,6 +515,9 @@ class _CatalogoTabState extends State<CatalogoTab> {
     String title = '${prop['housing_type_name'] ?? 'Propiedad'} en ${prop['city_name'] ?? prop['municipality_name'] ?? 'Caracas'}';
     String description = prop['public_observations'] ?? prop['description'] ?? 'Excelente oportunidad ubicada en una de las mejores zonas...';
     String agentName = prop['agent_name'] ?? 'Asesor RM';
+    
+    final String? wasiLink = prop['wasi']?.toString();
+    final bool hasWasi = wasiLink != null && wasiLink.trim().isNotEmpty;
 
     return Padding(
       padding: EdgeInsets.all(isMobile ? 12.0 : 20.0),
@@ -457,27 +525,42 @@ class _CatalogoTabState extends State<CatalogoTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: Text(_formatPrice(prop), style: TextStyle(fontSize: isMobile ? 16 : 24, fontWeight: FontWeight.bold, color: Colors.black))),
-              Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)), child: Text('RM00${prop['id_properties']}', style: TextStyle(color: Colors.grey.shade600, fontSize: isMobile ? 10 : 12, fontWeight: FontWeight.w600))),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hasWasi) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      margin: const EdgeInsets.only(right: 6),
+                      decoration: BoxDecoration(color: Colors.blue.shade50, border: Border.all(color: Colors.blue.shade200), borderRadius: BorderRadius.circular(4)),
+                      child: Text('WASI', style: TextStyle(color: Colors.blue.shade700, fontSize: isMobile ? 9 : 10, fontWeight: FontWeight.w900)),
+                    ),
+                  ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), 
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)), 
+                    child: Text('RM00${prop['id_properties']}', style: TextStyle(color: Colors.grey.shade600, fontSize: isMobile ? 10 : 12, fontWeight: FontWeight.w600))
+                  ),
+                ],
+              )
             ],
           ),
+          
           SizedBox(height: isMobile ? 4 : 8),
           Text(title, style: TextStyle(fontSize: isMobile ? 12 : 16, fontWeight: FontWeight.w600, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis),
           SizedBox(height: isMobile ? 4 : 4),
           Row(children: [Icon(Icons.location_on_outlined, size: isMobile ? 12 : 16, color: Colors.grey.shade600), const SizedBox(width: 4), Expanded(child: Text(_getLocation(prop).toUpperCase(), style: TextStyle(color: Colors.grey.shade600, fontSize: isMobile ? 10 : 12, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis))]),
           SizedBox(height: isMobile ? 6 : 8),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(4)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.badge_outlined, size: isMobile ? 12 : 14, color: Colors.black87), const SizedBox(width: 4), Text(agentName, style: TextStyle(fontSize: isMobile ? 9 : 11, fontWeight: FontWeight.bold, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis)])),
-          
-          // AQUÍ ESTABA EL ERROR DEL OVERFLOW EN LA TARJETA. Usamos Expanded para que la descripción se encoja si no hay espacio.
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8.0),
-              child: Text(description, style: TextStyle(color: Colors.grey.shade600, fontSize: isMobile ? 11 : 13, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
-            ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), 
+            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(4)), 
+            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.badge_outlined, size: isMobile ? 12 : 14, color: Colors.black87), const SizedBox(width: 4), Text(agentName, style: TextStyle(fontSize: isMobile ? 9 : 11, fontWeight: FontWeight.bold, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis)])
           ),
-          
+          Expanded(child: Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(description, style: TextStyle(color: Colors.grey.shade600, fontSize: isMobile ? 11 : 13, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis))),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [

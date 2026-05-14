@@ -10,6 +10,11 @@ import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart'; 
 import '../config/api_config.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import 'dart:typed_data';
 
 class GestionInmuebleScreen extends StatefulWidget {
   final String propertyId;
@@ -53,6 +58,7 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
   final TextEditingController _ownerPhoneCtrl = TextEditingController();
   final TextEditingController _ownerMailCtrl = TextEditingController();
   final TextEditingController _priceCtrl = TextEditingController();
+  final TextEditingController _priceAdditionalCtrl = TextEditingController(); // <--- LÍNEA NUEVA
   final TextEditingController _bedroomsCtrl = TextEditingController();
   final TextEditingController _bathroomsCtrl = TextEditingController();
   final TextEditingController _garagesCtrl = TextEditingController();
@@ -134,6 +140,7 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
           _ownerPhoneCtrl.text = _propertyData['owner_phone']?.toString() ?? '';
           _ownerMailCtrl.text = _propertyData['owner_mail']?.toString() ?? '';
           _priceCtrl.text = _propertyData['price']?.toString() ?? '';
+          _priceAdditionalCtrl.text = _propertyData['price_additional']?.toString() ?? ''; // <--- LÍNEA NUEVA
           _bedroomsCtrl.text = _propertyData['bedrooms']?.toString() ?? '';
           _bathroomsCtrl.text = _propertyData['bathrooms']?.toString() ?? '';
           _garagesCtrl.text = _propertyData['garages']?.toString() ?? '';
@@ -216,41 +223,212 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
   }
 
   // =========================================================================
-  // IMÁGENES: API REAL
+  // IMÁGENES: API REAL (CON COMPRESIÓN Y PANTALLA DE CARGA)
   // =========================================================================
   Future<void> _pickAndUploadImages() async {
-    final List<XFile> pickedFiles = await _picker.pickMultiImage();
+    final List<XFile> pickedFiles = await _picker.pickMultiImage(
+      imageQuality: 70,
+    );
+    
     if (pickedFiles.isEmpty) return;
 
     setState(() => _isUploadingImages = true);
-    final prefs = await SharedPreferences.getInstance();
-    
-    var request = http.MultipartRequest('POST', Uri.parse('${ApiConfig.baseUrl}/api/v1/mobile/properties/${widget.propertyId}/images'));
-    request.headers['Authorization'] = 'Bearer ${prefs.getString('jwt_token')}';
 
-    for (XFile file in pickedFiles) {
-      // MAGIA PARA WEB Y MÓVIL: Leer como bytes en lugar de path
-      final bytes = await file.readAsBytes();
-      request.files.add(http.MultipartFile.fromBytes(
-        'graphic[]', 
-        bytes,
-        filename: file.name, // Súper importante enviar el nombre y extensión
-      ));
-    }
+    // MOSTRAR DIÁLOGO DE CARGA BLOQUEANTE
+    showDialog(
+      context: context,
+      barrierDismissible: false, // El usuario NO puede cerrarlo tocando afuera
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          backgroundColor: Colors.white,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                strokeWidth: 4,
+              ),
+              SizedBox(height: 20),
+              Text(
+                'Comprimiendo imágenes...',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Por favor espere',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      var request = http.MultipartRequest(
+        'POST', 
+        Uri.parse('${ApiConfig.baseUrl}/api/v1/mobile/properties/${widget.propertyId}/images')
+      );
+      request.headers['Authorization'] = 'Bearer ${prefs.getString('jwt_token')}';
+
+      int successCount = 0;
+      int failCount = 0;
+      List<String> compressionLogs = [];
+      
+      // Procesamos cada imagen individualmente
+      for (int i = 0; i < pickedFiles.length; i++) {
+        XFile file = pickedFiles[i];
+        try {
+          // Actualizar mensaje si son muchas imágenes
+          if (pickedFiles.length > 1) {
+            // Nota: Para actualizar el diálogo necesitaríamos usar StatefulBuilder
+            // Por ahora dejamos el mensaje genérico
+          }
+          
+          // COMPRIMIMOS antes de enviar
+          final compressedBytes = await _compressImage(file, targetSizeKB: 1000);
+          
+          if (compressedBytes == null || compressedBytes.isEmpty) {
+            print('⚠️ No se pudo comprimir ${file.name}, se salta');
+            failCount++;
+            continue;
+          }
+          
+          // Verificamos que no exceda 1.5MB después de comprimir
+          if (compressedBytes.length > 1.5 * 1024 * 1024) {
+            print('⚠️ ${file.name} sigue siendo muy grande, reintentando...');
+            
+            final recompressed = await FlutterImageCompress.compressWithList(
+              compressedBytes,
+              minWidth: 1280,
+              minHeight: 720,
+              quality: 70,
+            );
+            
+            request.files.add(http.MultipartFile.fromBytes(
+              'graphic[]', 
+              recompressed,
+              filename: file.name,
+            ));
+          } else {
+            request.files.add(http.MultipartFile.fromBytes(
+              'graphic[]', 
+              compressedBytes,
+              filename: file.name,
+            ));
+          }
+          
+          successCount++;
+          
+        } catch (e) {
+          print('❌ Error procesando ${file.name}: $e');
+          failCount++;
+        }
+      }
+
+      // CERRAR DIÁLOGO DE COMPRESIÓN
+      Navigator.of(context).pop();
+
+      if (successCount == 0) {
+        setState(() => _isUploadingImages = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudieron procesar las imágenes'), 
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // MOSTRAR DIÁLOGO DE SUBIDA
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            backgroundColor: Colors.white,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                  strokeWidth: 4,
+                ),
+                SizedBox(height: 20),
+                Text(
+                  'Subiendo imágenes...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Conectando con el servidor',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      print('📤 Subiendo $successCount imágenes...');
+      
       var response = await request.send().timeout(const Duration(seconds: 120));
+      
+      // CERRAR DIÁLOGO DE SUBIDA
+      Navigator.of(context).pop();
+      
       setState(() => _isUploadingImages = false);
       
+      // Leemos la respuesta
+      final responseString = await response.stream.bytesToString();
+      print('📥 Respuesta servidor: $responseString');
+      
       if (response.statusCode == 200 || response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Imágenes subidas!'), backgroundColor: Colors.green));
-        _loadPropertyData(); // RECARGAMOS PARA VERLAS
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('¡$successCount imágenes subidas exitosamente!${failCount > 0 ? ' ($failCount fallaron)' : ''}'), 
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        _loadPropertyData(); // Recargamos para verlas
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error del servidor: ${response.statusCode}'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error del servidor: ${response.statusCode}'), 
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
+      
     } catch (e) {
+      // ASEGURARNOS DE CERRAR EL DIÁLOGO SI HAY ERROR
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
       setState(() => _isUploadingImages = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al subir fotos. Intenta de nuevo.'), backgroundColor: Colors.red));
+      print('❌ Error general: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al subir fotos: $e'), 
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
@@ -368,6 +546,14 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(child: _buildTextField('Precio Venta', _priceCtrl, allProtectedFieldsLocked, isNumber: true)),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('Precio Alquiler', _priceAdditionalCtrl, allProtectedFieldsLocked, isNumber: true)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
 
                       _buildTextField('Precio', _priceCtrl, allProtectedFieldsLocked, isNumber: true),
                       const SizedBox(height: 12),
@@ -425,7 +611,7 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
                               onPressed: () => _updateBlock({
                                 'area_type': _selAreaType, 'market_type': _selMarketType,
                                 'owner': _ownerCtrl.text, 'owner_phone': _ownerPhoneCtrl.text, 'owner_mail': _ownerMailCtrl.text,
-                                'price': _priceCtrl.text, 'bedrooms': _bedroomsCtrl.text, 'bathrooms': _bathroomsCtrl.text,
+                                'price': _priceCtrl.text, 'price_additional': _priceAdditionalCtrl.text, 'bedrooms': _bedroomsCtrl.text, 'bathrooms': _bathroomsCtrl.text,
                                 'meters_land': _landCtrl.text, 'meters_construction': _constCtrl.text,
                                 'garages': _garagesCtrl.text,
                                 'housing_type': _selHousingType, 'business_model': _selBusinessModel,
@@ -1041,6 +1227,44 @@ class _GestionInmuebleScreenState extends State<GestionInmuebleScreen> {
     } catch (e) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al borrar documento')));
+    }
+  }
+
+  /// Comprime una imagen XFile y retorna bytes optimizados
+  /// targetSizeKB: tamaño objetivo aproximado en KB (por defecto 800KB = ~0.8MB)
+  Future<Uint8List?> _compressImage(XFile file, {int targetSizeKB = 800}) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final originalSizeKB = bytes.length / 1024;
+      
+      print('🖼️ Imagen original: ${originalSizeKB.toStringAsFixed(2)} KB');
+      
+      // Si ya es pequeña, no comprimir
+      if (originalSizeKB < targetSizeKB) {
+        print('✅ Imagen ya es pequeña, no se comprime');
+        return bytes;
+      }
+      
+      // Usamos compressWithList para TODAS las plataformas (Web y Móvil)
+      // Esto trabaja directamente con bytes en memoria, sin archivos temporales
+      final compressedBytes = await FlutterImageCompress.compressWithList(
+        bytes,
+        minWidth: 1920,      // Máximo ancho
+        minHeight: 1080,     // Máximo alto  
+        quality: 85,         // Calidad 0-100 (85 es buen balance)
+        rotate: 0,
+      );
+      
+      final compressedSizeKB = compressedBytes.length / 1024;
+      final reduction = ((originalSizeKB - compressedSizeKB) / originalSizeKB * 100).toStringAsFixed(1);
+      print('✅ Comprimida: ${compressedSizeKB.toStringAsFixed(2)} KB (reducción: $reduction%)');
+      
+      return compressedBytes;
+        
+    } catch (e) {
+      print('❌ Error comprimiendo: $e');
+      // Si falla la compresión, retornamos los bytes originales
+      return await file.readAsBytes();
     }
   }
 }

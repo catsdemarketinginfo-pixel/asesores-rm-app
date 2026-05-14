@@ -24,7 +24,6 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
     
     // 1. Si la API trae una descripción real y extensa, la priorizamos.
     final String originalDesc = (prop['public_observations'] ?? prop['description'] ?? '').toString().trim();
-    // Verificamos que no sea la descripción genérica de 'Excellent opportunity'
     if (originalDesc.isNotEmpty && !originalDesc.contains('Excelente oportunidad. Inmueble con acabados')) {
       return originalDesc;
     }
@@ -34,26 +33,21 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
     final String business = (prop['business_model_name'] ?? 'venta').toString().toLowerCase();
     final String city = prop['city_name'] ?? prop['municipality_name'] ?? 'una excelente zona';
     
-    // Convertimos y limpiamos los valores numéricos
     final String meters = (prop['meters_construction']?.toString() ?? '0').trim();
     final String hab = (prop['bedrooms']?.toString() ?? '0').trim();
     final String bath = (prop['bathrooms']?.toString() ?? '0').trim();
 
-    // Recopilamos algunas características clave (ACEA) para nutrir el texto
     List<String> keyFeatures = [];
     if (prop['amenities_names'] != null && prop['amenities_names'].toString().isNotEmpty) {
-      // Tomamos solo las primeras 3 comodidades para no saturar el párrafo
       var amenities = prop['amenities_names'].toString().split(',').take(3).map((e) => e.trim().toLowerCase()).toList();
       keyFeatures.addAll(amenities);
     }
 
-    // Artículos y adjetivos dinámicos según el género del inmueble
     String article = (type.endsWith('a') || type == 'oficina' || type == 'quinta') ? 'Esta' : 'Este';
     String adj = (type.endsWith('a') || type == 'oficina' || type == 'quinta') ? 'exclusiva' : 'exclusivo';
 
     String generatedText = "$article $adj $type se encuentra disponible para $business en la cotizada zona de $city. ";
     
-    // LÓGICA CONDICIONAL: Solo menciona habs/baños si existen (son distintos a '0')
     String roomsText = '';
     if (hab != '0' && bath != '0') {
       roomsText = ', ofreciendo $hab habitaciones y $bath baños';
@@ -75,16 +69,22 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
   }
 
   // =========================================================================
-  // 2. LAUNCHER DE GOOGLE MAPS NATIVO
+  // 2. LAUNCHERS (Maps y Wasi)
   // =========================================================================
   Future<void> _openGoogleMaps() async {
-    // Las coordenadas suelen venir como "latitud, longitud" desde tu backend
     final String coords = widget.property['map_coordinates']?.toString() ?? '';
     if (coords.trim().isEmpty) return;
 
     final Uri url = Uri.parse("https://googleusercontent.com/maps.google.com/0");
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el mapa')));
+    }
+  }
+
+  Future<void> _openWasiLink(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('No se pudo abrir el enlace de Wasi'), backgroundColor: Colors.red));
     }
   }
 
@@ -96,6 +96,7 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
     double rent = double.tryParse(widget.property['price_additional']?.toString() ?? '0') ?? 0;
     final formatter = NumberFormat.currency(locale: 'en_US', symbol: '\$', decimalDigits: 0);
     
+    if (sale > 0 && rent > 0) return '${formatter.format(sale)} | ${formatter.format(rent)}/mes';
     if (sale > 0) return formatter.format(sale);
     if (rent > 0) return '${formatter.format(rent)}/mes';
     return 'Consultar';
@@ -137,7 +138,7 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
 
   void _copyLink(String link, String successMessage) {
     Clipboard.setData(ClipboardData(text: link));
-    Navigator.pop(context); // Cerramos el Modal
+    Navigator.pop(context); 
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(successMessage, style: const TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.green.shade600, behavior: SnackBarBehavior.floating,
     ));
@@ -146,10 +147,20 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
   void _showShareModal() {
     final prop = widget.property;
     final String idStr = prop['id_properties'].toString();
+    
+    // URLs base según tu estructura de producción
     const String baseUrl = 'https://tuasesorrm.com.ve'; 
+    
+    // 1. Enlace directo para clientes
     final String directLink = '$baseUrl/propiedad/$idStr'; 
+    
+    // 2. Enlace Marca Blanca (Ficha Colega) con ID en Base64
     final String encryptedId = base64Encode(utf8.encode(idStr));
     final String colleagueLink = '$baseUrl/ficha/$encryptedId';
+    
+    // 3. Enlace de Wasi (viene directo del backend como URL completa)
+    final String? wasiLink = prop['wasi']?.toString();
+    final bool hasWasi = wasiLink != null && wasiLink.trim().isNotEmpty;
 
     showModalBottomSheet(
       context: context,
@@ -157,81 +168,154 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
       isScrollControlled: true,
       builder: (context) {
         return Container(
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24))),
+          decoration: const BoxDecoration(
+            color: Colors.white, 
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24), 
+              topRight: Radius.circular(24)
+            )
+          ),
           padding: const EdgeInsets.all(24),
           child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Compartir Propiedad', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black)),
-                    IconButton(icon: const Icon(Icons.close, color: Colors.grey), onPressed: () => Navigator.pop(context))
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text('PARA TU CLIENTE DIRECTO', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
-                const SizedBox(height: 4),
-                const Text('Enlace normal con toda la marca y tus datos de contacto.', style: TextStyle(fontSize: 13, color: Colors.black54)),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _copyLink(directLink, '¡Enlace Directo Copiado!'), icon: const Icon(Icons.copy, size: 18, color: Colors.black),
-                        label: const Text('Copiar Link', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: BorderSide(color: Colors.grey.shade300), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () { Navigator.pop(context); _shareViaWhatsApp(directLink, false); },
-                        icon: const Icon(Icons.chat, size: 18, color: Colors.white), 
-                        label: const Text('WhatsApp', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
-                      ),
-                    ),
-                  ],
-                ),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Divider()),
-                Row(
-                  children: [
-                    const Text('PARA UN COLEGA ASESOR', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black, letterSpacing: 1)),
-                    const SizedBox(width: 8),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(4)), child: const Text('MARCA BLANCA', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5))),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                const Text('Ficha aislada. Sin logotipos, sin botón de WhatsApp y con código oculto.', style: TextStyle(fontSize: 13, color: Colors.black54)),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _copyLink(colleagueLink, '¡Ficha de Colega Copiada!'), icon: const Icon(Icons.copy, size: 18, color: Colors.black),
-                        label: const Text('Copiar Ficha', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: BorderSide(color: Colors.grey.shade300), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () { Navigator.pop(context); _shareViaWhatsApp(colleagueLink, true); },
-                        icon: const Icon(Icons.chat, size: 18, color: Colors.white),
-                        label: const Text('WhatsApp', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
-                      ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Compartir Propiedad', 
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black)),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey), 
+                        onPressed: () => Navigator.pop(context)
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // --- SECCIÓN: CLIENTE DIRECTO ---
+                  _buildShareSection(
+                    title: 'PARA TU CLIENTE DIRECTO',
+                    description: 'Enlace con toda la marca y tus datos de contacto.',
+                    link: directLink,
+                    buttonColor: const Color(0xFF25D366), // Verde WhatsApp
+                    isColleague: false,
+                  ),
+
+                  const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
+
+                  // --- SECCIÓN: COLEGA (MARCA BLANCA) ---
+                  _buildShareSection(
+                    title: 'PARA UN COLEGA ASESOR',
+                    tag: 'MARCA BLANCA',
+                    description: 'Ficha aislada. Sin logotipos ni botones de contacto.',
+                    link: colleagueLink,
+                    buttonColor: Colors.black,
+                    isColleague: true,
+                  ),
+
+                  // --- SECCIÓN: WASI (SOLO SI EXISTE) ---
+                  if (hasWasi) ...[
+                    const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
+                    _buildShareSection(
+                      title: 'RED INMOBILIARIA',
+                      tag: 'WASI',
+                      description: 'Enlace al perfil público de Wasi para esta propiedad.',
+                      link: wasiLink!,
+                      buttonColor: Colors.blue.shade600,
+                      isColleague: false,
+                      isWasi: true,
                     ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         );
       }
+    );
+  }
+
+  // Helper para construir cada sección de compartir y no repetir código
+  Widget _buildShareSection({
+    required String title, 
+    String? tag, 
+    required String description, 
+    required String link, 
+    required Color buttonColor,
+    required bool isColleague,
+    bool isWasi = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isWasi ? Colors.blue : Colors.grey, letterSpacing: 1)),
+            if (tag != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
+                decoration: BoxDecoration(color: isWasi ? Colors.blue.shade100 : Colors.black, borderRadius: BorderRadius.circular(4)), 
+                child: Text(tag, style: TextStyle(color: isWasi ? Colors.blue.shade800 : Colors.white, fontSize: 9, fontWeight: FontWeight.bold))
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(description, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _copyLink(link, '¡Enlace copiado!'), 
+                icon: Icon(Icons.copy, size: 18, color: isWasi ? Colors.blue : Colors.black),
+                label: Text('Copiar', style: TextStyle(color: isWasi ? Colors.blue : Colors.black, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: BorderSide(color: isWasi ? Colors.blue.shade200 : Colors.grey.shade300),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () { 
+                  Navigator.pop(context); 
+                  _shareViaWhatsApp(link, isColleague); 
+                },
+                icon: const Icon(Icons.chat, size: 18, color: Colors.white),
+                label: const Text('WhatsApp', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: buttonColor, 
+                  padding: const EdgeInsets.symmetric(vertical: 12), 
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), 
+                  elevation: 0
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Helper para no repetir código de botones en el modal
+  Widget _buildShareButton(String label, IconData icon, Color color, VoidCallback onPressed) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18, color: color),
+      label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        side: BorderSide(color: color.withOpacity(0.3)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
   }
 
@@ -244,8 +328,11 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
     final List<dynamic> images = prop['images'] ?? [{'url': 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&q=80'}];
     final String title = '${prop['housing_type_name'] ?? 'Propiedad'} en ${prop['city_name'] ?? prop['municipality_name'] ?? 'Caracas'}';
     
-    // Verificamos si la propiedad trae coordenadas válidas para mostrar la tarjeta del mapa
     final bool hasCoordinates = prop['map_coordinates'] != null && prop['map_coordinates'].toString().trim().isNotEmpty;
+    
+    // VARIABLE CLAVE: Verificamos si la propiedad tiene un link a Wasi
+    final String? wasiLink = prop['wasi']?.toString();
+    final bool hasWasi = wasiLink != null && wasiLink.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -266,7 +353,7 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
                     itemCount: images.length,
                     onPageChanged: (index) => setState(() => _currentImageIndex = index),
                     itemBuilder: (context, index) {
-                      return Image.network(images[index]['url'], fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 50, color: Colors.grey));
+                      return Image.network(images[index]['url'] ?? images[index]['name'] ?? '', fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 50, color: Colors.grey));
                     },
                   ),
                   Positioned(bottom: 0, left: 0, right: 0, child: Container(height: 100, decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black.withOpacity(0.8), Colors.transparent])))),
@@ -320,10 +407,9 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ESTADÍSTICAS DINÁMICAS (Renderizado Condicional: Oculta los ceros)
-                  // Usamos Wrap en lugar de Row para que, si quedan pocas stats, no queden divisores flotando o huecos.
+                  // ESTADÍSTICAS DINÁMICAS
                   Wrap(
-                    spacing: 16, runSpacing: 16, // Espaciado horizontal y vertical
+                    spacing: 16, runSpacing: 16,
                     children: [
                       if ((prop['bedrooms']?.toString() ?? '0') != '0')
                         _buildMainStat(Icons.bed_outlined, prop['bedrooms'].toString(), 'Habitaciones'),
@@ -360,7 +446,47 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
                   _buildAceaSection('Exteriores', prop['exterior_names']),
                   _buildAceaSection('Adyacencias', prop['adjacencies_names']),
 
-                  // SECCIÓN DE MAPA (Blanco y Negro - Estilo Minimalista)
+                  // LA NUEVA SECCIÓN: WASI 🌐
+                  if (hasWasi) ...[
+                    const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Divider(color: Color(0xFFEEEEEE), thickness: 1)),
+                    const Text('Sincronización', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.black)),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: () => _openWasiLink(wasiLink!),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          border: Border.all(color: Colors.blue.shade200),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                              // Un ícono sutil para denotar "Red de Inmuebles / Wasi"
+                              child: const Icon(Icons.webhook_rounded, color: Colors.blue), 
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Ver en Wasi', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                                  Text(wasiLink!, style: TextStyle(fontSize: 12, color: Colors.blue.shade700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.open_in_new, color: Colors.blue, size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // SECCIÓN DE MAPA
                   if (hasCoordinates) ...[
                     const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Divider(color: Color(0xFFEEEEEE), thickness: 1)),
                     const Text('Ubicación', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.black)),
@@ -372,31 +498,25 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
                         width: double.infinity,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.grey.shade100), // Borde gris muy suave
+                          border: Border.all(color: Colors.grey.shade100), 
                         ),
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // 3. IMAGEN DE FONDO (Forzada a Blanco y Negro)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(16),
                               child: Image.network(
-                                // Usamos una imagen de mapa minimalista
                                 'https://images.unsplash.com/photo-1569336415962-a4bd9f69cd83?w=800&q=80', 
                                 fit: BoxFit.cover, 
                                 width: double.infinity, 
                                 height: double.infinity, 
-                                // LA MAGIA BLANCO Y NEGRO: Mezclamos con blanco y usamos BlendMode.color
-                                // Esto desatura la imagen completamente.
                                 color: Colors.white,
                                 colorBlendMode: BlendMode.color, 
                               ),
                             ),
-                            // Capa de superposición para suavizar más (opcional, para look 'blanco')
                             Container(
                               decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), color: Colors.white.withOpacity(0.4)),
                             ),
-                            // Botón central minimalista
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                               decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(30), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
@@ -430,14 +550,12 @@ class _PropertyDetailScreenState extends State<PropertyDetailScreen> {
         decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
         child: Row(
           children: [
-            // Info del Agente - Blindado contra enlaces vacíos/nulos de Génesis
             Container(
               width: 48, height: 48,
               decoration: BoxDecoration(color: const Color(0xFFF1F5F9), shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200)),
               child: ClipOval(
                 child: Image.network(
                   prop['agent_photo']?.toString() ?? '', fit: BoxFit.cover,
-                  // Si no hay foto, el errorBuilder muestra el icono de User
                   errorBuilder: (context, error, stackTrace) => Icon(Icons.person_outline, size: 28, color: Colors.grey.shade400),
                 ),
               ),

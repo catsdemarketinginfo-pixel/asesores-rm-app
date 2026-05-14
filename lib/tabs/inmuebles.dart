@@ -181,9 +181,26 @@ class _InmueblesTabState extends State<InmueblesTab> {
   // EL ITEM TIPO "CARPETA" EN LISTA (Navega a la Etapa 2)
   // =========================================================================
   Widget _buildFolderItem(Map<String, dynamic> prop) {
+    // Lógica dinámica de precios
+    String priceText = '';
+    final p1 = prop['price']?.toString() ?? '';
+    final p2 = prop['price_additional']?.toString() ?? '';
+    
+    bool hasP1 = p1.isNotEmpty && p1 != '0' && p1 != '0.00' && p1 != 'null';
+    bool hasP2 = p2.isNotEmpty && p2 != '0' && p2 != '0.00' && p2 != 'null';
+
+    if (hasP1 && hasP2) {
+      priceText = 'V: \$$p1 | A: \$$p2';
+    } else if (hasP1) {
+      priceText = '\$$p1';
+    } else if (hasP2) {
+      priceText = '\$$p2';
+    } else {
+      priceText = 'Consultar';
+    }
+
     return InkWell(
       onTap: () {
-        // NAVEGAMOS A LA GESTIÓN PROFUNDA AL TOCAR LA CARPETA
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -218,9 +235,14 @@ class _InmueblesTabState extends State<InmueblesTab> {
                         style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.black)
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        '\$${prop['price']}', 
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.green)
+                      // Envolvemos el precio en Expanded por si es muy largo
+                      Expanded(
+                        child: Text(
+                          priceText, 
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.green),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
