@@ -1,0 +1,21 @@
+workflows:
+  ios-unsigned-build:
+    name: Build Unsigned iOS IPA
+    environment:
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Obtener dependencias de Flutter
+        script: |
+          flutter packages pub get
+      - name: Compilar iOS sin firmar
+        script: |
+          flutter build ios --release --no-codesign
+      - name: Empaquetar Runner.app en un .ipa
+        script: |
+          cd build/ios/iphoneos/
+          mkdir -p Payload
+          mv Runner.app Payload/
+          zip -r TuApp.ipa Payload
+    artifacts:
+      - build/ios/iphoneos/TuApp.ipa
