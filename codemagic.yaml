@@ -13,10 +13,11 @@ workflows:
       - name: Obtener dependencias de Flutter
         script: flutter packages pub get
       
-      - name: Instalar pods
-        script: |
-          cd ios
-          pod install
+      # ELIMINA ESTE BLOQUE COMPLETO:
+      # - name: Instalar pods
+      #   script: |
+      #     cd ios
+      #     pod install
       
       - name: Compilar iOS para App Store
         script: flutter build ipa --release
