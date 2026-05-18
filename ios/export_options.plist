@@ -4,10 +4,13 @@
 <dict>
     <key>method</key>
     <string>app-store</string>
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>com.example.agilizadorRmApp</key>
-        <string>Asesores RM App Store</string>
-    </dict>
+    <key>teamID</key>
+    <string>TU_TEAM_ID</string>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>stripSwiftSymbols</key>
+    <true/>
 </dict>
 </plist>
