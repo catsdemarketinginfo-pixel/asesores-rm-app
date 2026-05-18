@@ -5,7 +5,7 @@ workflows:
       flutter: stable
       xcode: latest
       ios_signing:
-        distribution_type: app_store  # <-- Corregido: guión bajo, no guión
+        distribution_type: app_store
         bundle_identifier: com.example.agilizadorRmApp
     scripts:
       - name: Deshabilitar Swift Package Manager
