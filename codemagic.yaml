@@ -1,21 +1,32 @@
 workflows:
-  ios-unsigned-build:
-    name: Build Unsigned iOS IPA
+  ios-app-store:
+    name: iOS App Store Release
     environment:
       flutter: stable
       xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.agilizadorRmApp
+      groups:
+        - ios_credentials
     scripts:
       - name: Obtener dependencias de Flutter
+        script: flutter packages pub get
+      
+      - name: Instalar pods
         script: |
-          flutter packages pub get
-      - name: Compilar iOS sin firmar
-        script: |
-          flutter build ios --release --no-codesign
-      - name: Empaquetar Runner.app en un .ipa
-        script: |
-          cd build/ios/iphoneos/
-          mkdir -p Payload
-          mv Runner.app Payload/
-          zip -r TuApp.ipa Payload
+          cd ios
+          pod install
+      
+      - name: Compilar iOS para App Store
+        script: flutter build ipa --release
+    
     artifacts:
-      - build/ios/iphoneos/TuApp.ipa
+      - build/ios/ipa/*.ipa
+    
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_API_KEY
+        key_id: $APP_STORE_CONNECT_KEY_ID
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
