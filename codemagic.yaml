@@ -17,7 +17,7 @@ workflows:
         script: |
           flutter clean
           flutter pub get
-          flutter build ipa --release  # <-- Sin --no-codesign
+          flutter build ipa --release --export-options-plist=ios/export_options.plist
     
     artifacts:
       - build/ios/ipa/*.ipa
