@@ -4,19 +4,20 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.example.agilizadorRmApp
       groups:
-        - ios_credentials
+        - ios_credentiais  # Corregido: coincidía con el nombre en tu UI (termina en 'i')
     scripts:
-      - name: Obtener dependencias de Flutter
-        script: flutter packages pub get
+      - name: Deshabilitar Swift Package Manager
+        script: flutter config --no-enable-swift-package-manager
       
-      - name: Compilar iOS para App Store
+      - name: Instalar dependencias
         script: |
           flutter clean
           flutter pub get
+          cd ios && pod install && cd ..
+      
+      - name: Compilar iOS para App Store
+        script: |
           flutter build ipa --release --export-options-plist=ios/export_options.plist
     
     artifacts:
