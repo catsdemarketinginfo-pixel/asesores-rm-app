@@ -4,8 +4,7 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      groups:
-        - ios_credentiais  # <-- Corregido: termina en 'i', no 'a'
+      # Eliminamos 'groups' completamente
     scripts:
       - name: Deshabilitar Swift Package Manager
         script: flutter config --no-enable-swift-package-manager
