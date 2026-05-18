@@ -4,7 +4,9 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      # Eliminamos 'groups' completamente
+      ios_signing:
+        distribution_type: app_store  # <-- Corregido: guión bajo, no guión
+        bundle_identifier: com.example.agilizadorRmApp
     scripts:
       - name: Deshabilitar Swift Package Manager
         script: flutter config --no-enable-swift-package-manager
